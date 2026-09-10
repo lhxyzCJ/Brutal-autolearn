@@ -9,12 +9,15 @@ set -u
 # "auto" = follow all local listening TCP ports (recommended). Or pin a list,
 # e.g. PORTS="3306 443 8443 8964".
 PORTS="auto"
+# Never learn from these local ports: SSH/management carry tiny flows that
+# need no brutal, and slow scanners love holding them open past the gate.
+LEARN_IGNORE_PORTS="22"
 # Sockets on these local ports are force-closed once, right after a FRESH
 # rule is added, so the client reconnects and the new TCP gets brutal from
 # the first SYN. Keep this to proxy ports only: never kick SSH/management
 # ports, and "restore" adds (reboot refill, no old sockets anyway) skip it.
 KICK_PORTS="3306 443 8443 8964"
-DEFAULT_RATE_MBPS="120"
+DEFAULT_RATE_MBPS="90"
 GAIN="20"
 # Known client IPs: rules are ensured on every run, even before they
 # connect, so reconnects get brutal from the very first SYN.
@@ -148,6 +151,17 @@ if [ "$PORTS" = "auto" ]; then
   EFFECTIVE_PORTS="$(ss -tlnH 2>/dev/null | awk '{print $4}' | sed -e 's/.*://' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')"
 else
   EFFECTIVE_PORTS="$PORTS"
+fi
+if [ -n "$LEARN_IGNORE_PORTS" ]; then
+  FILTERED=""
+  for p in $EFFECTIVE_PORTS; do
+    skip=0
+    for q in $LEARN_IGNORE_PORTS; do
+      if [ "$p" = "$q" ]; then skip=1; break; fi
+    done
+    if [ "$skip" = 0 ]; then FILTERED="$FILTERED $p"; fi
+  done
+  EFFECTIVE_PORTS="$FILTERED"
 fi
 CUR_SEEN="$(mktemp)"
 for port in $EFFECTIVE_PORTS; do
