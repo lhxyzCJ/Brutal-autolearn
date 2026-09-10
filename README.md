@@ -103,6 +103,7 @@ systemctl enable --now brutal-cleanup.timer
 | `DEFAULT_RATE_MBPS` | `"100"` | 下发 rate，单位 Mbps，含义见[调参指南](#调参指南)。 |
 | `GAIN` | `"20"` | 即 2.0x，官方上限，别再高。 |
 | `KNOWN_CLIENTS` | `""` | 常客 IP，空格分隔，每次必保。填你自己的固定 IP，重连首包即 brutal。 |
+| `KICK_PORTS` | `"3306 443 8443 8964"` | 新规则下发后立即踢掉该 IP 在这些端口上的老 TCP，逼客户端重连、首包即 brutal。只保留代理端口，别加 SSH/管理端口；只对新加的 known/learned 生效，`restore` 不踢。 |
 | `LOG` / `STATE_DIR` | 见脚本 | 日志和状态目录，一般不用动。 |
 
 **brutal-cleanup.sh**
@@ -120,9 +121,15 @@ systemctl enable --now brutal-cleanup.timer
 1. **保预置**：`KNOWN_CLIENTS` 逐个 `ensure_rule`（内核没规则就 `brutalctl add IP/32 rate gain=xx`）。
 2. **恢复落盘**：`known.list` 里所有 IP 同样 `ensure_rule`，重启后自动补表。
 3. **行为门学习**：
-   - 抓 `ss -tn state established` 里本地端口命中 `PORTS` 的对端，存**完整 `IP:port`**（IPv4 去 `::ffff:`，IPv6 保留括号格式），排序去重写 `CUR_SEEN`；
-   - 跟上一轮 `LAST_SEEN` 取交集——只有**同一个 `IP:port` 连活两轮**的才提 IP 调 `ensure_rule "learned"`；
-   - `CUR_SEEN` 覆盖 `LAST_SEEN`，供下一轮比对。
+   - 抓 `ss -tn established` 里本地端口命中监听集合的对端，存 **`本地端口 + IP:port`**
+     （如 `443 [1.2.3.4]:5678`）到本轮快照；
+   - 跟上一轮快照取交集——**同一个 socket 连活两轮（约 10s）**才提 IP 加规则，日志记为
+     `ADD x.x.x.x/32 100Mbps (learned:443)`，端口号即审计依据。正常 naive h2 / VLESS
+     长连接轻松过；毫秒级握手失败的扫描器换端口重连，对不上号。
+   - 本轮快照覆盖旧的，供下一轮比对。
+4. **下发即踢**：新规则（known/learned，非 restore）落表后，`ss -K` 踢掉该 IP 在
+   `KICK_PORTS` 上的老 TCP（记 `KICK x.x.x.x closed=N`），客户端自动重连，
+   新 TCP 首包即 brutal。代价是一次秒级抖动，只对该 IP 生效一次。
 
 为什么是 `IP:port` 而不是 `IP`：旧版按 IP 比对时，实测某扫描器（`TLS handshake: EOF`，
 单连接存活几十毫秒）靠高频换源端口重连、每轮 IP 都在场，混进了表。改成四元组后这类扫描

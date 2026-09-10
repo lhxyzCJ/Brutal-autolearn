@@ -9,6 +9,11 @@ set -u
 # "auto" = follow all local listening TCP ports (recommended). Or pin a list,
 # e.g. PORTS="3306 443 8443 8964".
 PORTS="auto"
+# Sockets on these local ports are force-closed once, right after a FRESH
+# rule is added, so the client reconnects and the new TCP gets brutal from
+# the first SYN. Keep this to proxy ports only: never kick SSH/management
+# ports, and "restore" adds (reboot refill, no old sockets anyway) skip it.
+KICK_PORTS="3306 443 8443 8964"
 DEFAULT_RATE_MBPS="100"
 GAIN="20"
 # Known client IPs: rules are ensured on every run, even before they
@@ -58,6 +63,19 @@ endpoint_to_ip() {
   echo "$ip"
 }
 
+# Force-close this client's sockets on proxy ports so it reconnects onto
+# brutal immediately. Called once per fresh ADD only (never for "restore").
+# Clients (naive/xray/sing-box) reconnect on their own; the blip is seconds.
+kick_ip() {
+  local ip="$1" p out n
+  n=0
+  for p in $KICK_PORTS; do
+    out="$(ss -K dst "$ip" sport == ":$p" 2>&1)"
+    n=$((n + $(echo "$out" | grep -c '^tcp ' || true)))
+  done
+  log "KICK ${ip} closed=${n} (reconnect onto brutal)"
+}
+
 ensure_rule() {
   local ip="$1" src="$2" pfx
   [ -z "$ip" ] && return 0
@@ -78,6 +96,12 @@ ensure_rule() {
       have_rules="${have_rules}
 ${ip}"
       remember_ip "$ip"
+      # fresh rule: old sockets are still on the previous CC, kick them so
+      # the client reconnects straight onto brutal (skip "restore": after a
+      # reboot there are no old sockets to kick).
+      if [ "$src" != "restore" ]; then
+        kick_ip "$ip"
+      fi
     else
       log "FAIL ${pfx}"
     fi
@@ -117,8 +141,10 @@ fi
 CUR_SEEN="$(mktemp)"
 for port in $EFFECTIVE_PORTS; do
   # $3 = local, $4 = peer ("1.2.3.4:5678", "[2001:db8::1]:5678",
-  # "[::ffff:1.2.3.4]:5678"). Keep the FULL endpoint as the key so rapid
-  # reconnects from the same IP with different ports do NOT match.
+  # "[::ffff:1.2.3.4]:5678"). Keep "LOCALPORT PEER" as the key: the same
+  # socket has the same server-side port across polls, rapid reconnects
+  # from the same IP with different ports do NOT match, and the port is
+  # kept for audit logging.
   ss -tn state established 2>/dev/null \
     | awk -v p=":${port}" '$3 ~ p"$" {print $4}' \
     | sed -e "s/::ffff://g" \
@@ -127,16 +153,16 @@ for port in $EFFECTIVE_PORTS; do
       [ -z "$ep" ] && continue
       ip="$(endpoint_to_ip "$ep")"
       if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || [[ "$ip" == *:* ]]; then
-        is_private "$ip" || echo "$ep"
+        is_private "$ip" || echo "${port} ${ep}"
       fi
     done
 done | sort -u > "$CUR_SEEN"
 
 if [ -s "$LAST_SEEN" ]; then
-  comm -12 "$LAST_SEEN" "$CUR_SEEN" | while read -r ep; do
+  comm -12 "$LAST_SEEN" "$CUR_SEEN" | while read -r lport ep; do
     [ -z "$ep" ] && continue
     ip="$(endpoint_to_ip "$ep")"
-    ensure_rule "$ip" "learned"
+    ensure_rule "$ip" "learned:${lport}"
   done
 fi
 mv "$CUR_SEEN" "$LAST_SEEN"
