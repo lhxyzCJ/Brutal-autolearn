@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # brutal-autolearn: auto-add tcp-brutal v2 rules for TCP proxy clients.
-# Covered: sing-box naive h2 (3306) + anytls (8443), xray VLESS+xhttp (443 reality, 8964).
+# Covered (auto mode): all local listening TCP ports, e.g. sing-box naive h2
+# (3306) + anytls (8443), xray VLESS+xhttp (443 reality, 8964). New proxy
+# ports are picked up without editing. Outbound connections are never
+# learned: their local side is an ephemeral port, not a listener.
 # Hysteria2/TUIC/hysteria are UDP/QUIC (own app-level control) and out of scope.
 set -u
-PORTS="3306 443 8443 8964"
+# "auto" = follow all local listening TCP ports (recommended). Or pin a list,
+# e.g. PORTS="3306 443 8443 8964".
+PORTS="auto"
 DEFAULT_RATE_MBPS="100"
 GAIN="20"
 # Known client IPs: rules are ensured on every run, even before they
@@ -101,8 +106,16 @@ fi
 # churn source ports, so the same IP:port is never seen twice. Genuine proxy
 # sessions (naive h2, xray VLESS) hold one TCP for minutes and pass.
 # KNOWN_CLIENTS / known.list above bypass this gate.
+# Port scope: in "auto" mode every local LISTENING port is watched, so new
+# proxy inbounds are covered with zero config; outbound connections can never
+# match (their local port is ephemeral, never a listener).
+if [ "$PORTS" = "auto" ]; then
+  EFFECTIVE_PORTS="$(ss -tlnH 2>/dev/null | awk '{print $4}' | sed -e 's/.*://' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')"
+else
+  EFFECTIVE_PORTS="$PORTS"
+fi
 CUR_SEEN="$(mktemp)"
-for port in $PORTS; do
+for port in $EFFECTIVE_PORTS; do
   # $3 = local, $4 = peer ("1.2.3.4:5678", "[2001:db8::1]:5678",
   # "[::ffff:1.2.3.4]:5678"). Keep the FULL endpoint as the key so rapid
   # reconnects from the same IP with different ports do NOT match.
