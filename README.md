@@ -101,7 +101,7 @@ systemctl enable --now brutal-cleanup.timer
 |---|---|---|
 | `PORTS` | `"auto"` | `auto` = 自动跟随本机所有监听中的 TCP 端口（新代理端口零配置生效；出站连接本地是随机端口，永远学不到）。也可写死，如 `PORTS="3306 443 8443 8964"`。UDP/QUIC 类协议（hysteria2/TUIC，自带应用层控制）不用填。 |
 | `LEARN_IGNORE_PORTS` | `"22"` | 这些本地端口不参与学习：SSH/管理口流量小不需要 brutal，且慢速扫描最爱按住它们混过行为门。空格分隔。 |
-| `DEFAULT_RATE_MBPS` | `"40"` | 下发 rate，单位 Mbps，含义见[调参指南](#调参指南)。 |
+| `DEFAULT_RATE_MBPS` | `"100"` | 下发 rate，单位 Mbps，含义见[调参指南](#调参指南)。按自家链路实测改（100M 宽带填 100）。 |
 | `GAIN` | `"20"` | 即 2.0x，官方上限，别再高。 |
 | `KNOWN_CLIENTS` | `""` | 常客 IP，空格分隔，每次必保。填你自己的固定 IP，重连首包即 brutal。 |
 | `KICK_PORTS` | `"3306 443 8443 8964"` | 新规则下发后立即踢掉该 IP 在这些端口上的老 TCP，逼客户端重连、首包即 brutal。只保留代理端口，别加 SSH/管理端口；只对新加的 known/learned 生效，`restore` 不踢。 |
