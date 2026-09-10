@@ -14,7 +14,7 @@ PORTS="auto"
 # the first SYN. Keep this to proxy ports only: never kick SSH/management
 # ports, and "restore" adds (reboot refill, no old sockets anyway) skip it.
 KICK_PORTS="3306 443 8443 8964"
-DEFAULT_RATE_MBPS="100"
+DEFAULT_RATE_MBPS="120"
 GAIN="20"
 # Known client IPs: rules are ensured on every run, even before they
 # connect, so reconnects get brutal from the very first SYN.
@@ -41,6 +41,16 @@ have_rules="$(brutalctl list 2>/dev/null | awk "NR>1 {print \$1}" | cut -d/ -f1 
 is_private() {
   case "$1" in
     127.*|10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|::1|fe80:*|fc00:*|fd00:*|"") return 0;;
+    *) return 1;;
+  esac
+}
+
+# Own addresses (public IP included): server-to-self traffic never needs a
+# brutal rule, and adding one only produces FAIL noise.
+SELF_IPS="$(hostname -I 2>/dev/null) $(ip -4 addr show scope global 2>/dev/null | awk '{print $2}' | cut -d/ -f1) $(ip -6 addr show scope global 2>/dev/null | awk '{print $2}' | cut -d/ -f1)"
+is_self() {
+  case " $SELF_IPS " in
+    *" $1 "*) return 0;;
     *) return 1;;
   esac
 }
@@ -89,6 +99,7 @@ ensure_rule() {
     return 0
   fi
   is_private "$ip" && return 0
+  is_self "$ip" && return 0
   if [[ "$ip" == *:* ]]; then pfx="${ip}/128"; else pfx="${ip}/32"; fi
   if ! grep -qxF "$ip" <<< "$have_rules"; then
     if brutalctl add "$pfx" "$DEFAULT_RATE_MBPS" "gain=${GAIN}" >>"$LOG" 2>&1; then
