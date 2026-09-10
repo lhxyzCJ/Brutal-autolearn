@@ -1,0 +1,6 @@
+[Unit]
+Description=TCP Brutal quarterly zombie cleanup
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/brutal-cleanup.sh

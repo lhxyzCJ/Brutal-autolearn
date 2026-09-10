@@ -1,0 +1,8 @@
+[Unit]
+Description=Run TCP Brutal cleanup every 3 months
+[Timer]
+OnCalendar=*-01,04,07,10-01 03:00:00
+Persistent=true
+Unit=brutal-cleanup.service
+[Install]
+WantedBy=timers.target

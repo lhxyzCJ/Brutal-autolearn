@@ -1,0 +1,10 @@
+[Unit]
+Description=Run TCP Brutal auto-learn every 5s
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=5s
+Unit=brutal-autolearn.service
+
+[Install]
+WantedBy=timers.target
