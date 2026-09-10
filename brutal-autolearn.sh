@@ -17,7 +17,7 @@ LEARN_IGNORE_PORTS="22"
 # the first SYN. Keep this to proxy ports only: never kick SSH/management
 # ports, and "restore" adds (reboot refill, no old sockets anyway) skip it.
 KICK_PORTS="3306 443 8443 8964"
-DEFAULT_RATE_MBPS="90"
+DEFAULT_RATE_MBPS="40"
 GAIN="20"
 # Known client IPs: rules are ensured on every run, even before they
 # connect, so reconnects get brutal from the very first SYN.
